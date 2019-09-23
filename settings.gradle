@@ -1,0 +1,2 @@
+include ':app', ':plugins_demo', ':plugin_comm', 'plugins_protocol'
+rootProject.name = 'AndroidPlugins'
