@@ -173,7 +173,7 @@ public class PluginManager {
         ArrayList<Object> intentList = (ArrayList<Object>) componentClass.getField("intents").get(receiver);
 
         //解析类名
-        //这里拿到的不是完整的包名 是删减的 ？
+        //这里拿到的不是完整的包名 是删减的 ？--就是真的？？？？？？我操
         String className = (String) componentClass.getField("className").get(receiver);
         if (DEBUG) Log.d(TAG, "parseStaticBroader:className-> " + className);
 
