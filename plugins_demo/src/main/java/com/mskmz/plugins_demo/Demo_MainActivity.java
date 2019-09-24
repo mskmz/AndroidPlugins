@@ -26,6 +26,7 @@ public class Demo_MainActivity extends ActivityImpl implements View.OnClickListe
     findViewById(R.id.btn_start_service).setOnClickListener(this);
     findViewById(R.id.btn_register_broader).setOnClickListener(this);
     findViewById(R.id.btn_send_broader).setOnClickListener(this);
+    findViewById(R.id.btn_send_static_broader).setOnClickListener(this);
   }
 
 
@@ -49,6 +50,11 @@ public class Demo_MainActivity extends ActivityImpl implements View.OnClickListe
       case R.id.btn_send_broader:
         intent = new Intent();
         intent.setAction(ACTION);
+        sendBroadcast(intent);
+        break;
+      case R.id.btn_send_static_broader:
+        intent = new Intent();
+        intent.setAction("plugin.static_receiver");
         sendBroadcast(intent);
         break;
     }

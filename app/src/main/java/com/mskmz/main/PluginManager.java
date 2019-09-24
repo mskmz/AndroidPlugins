@@ -1,7 +1,10 @@
 package com.mskmz.main;
 
+import android.app.Application;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
@@ -11,7 +14,9 @@ import android.util.ArrayMap;
 import android.util.Log;
 
 import java.io.File;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -59,6 +64,7 @@ public class PluginManager {
 
   public void updatePluginEnv(File apk) {
     loadPlugin(apk);
+    parseStaticBroader(apk);
   }
 
 
@@ -106,7 +112,7 @@ public class PluginManager {
             name,
             new Resources(assetManager, r.getDisplayMetrics(), r.getConfiguration())// 参数2 3  资源配置信息
         );
-        if (DEBUG) Log.d(TAG, "loadPlugin: Resources加载成功-"+name);
+        if (DEBUG) Log.d(TAG, "loadPlugin: Resources加载成功-" + name);
       }
 
     } catch (Exception e) {
@@ -130,6 +136,73 @@ public class PluginManager {
     intent.putExtra(ProxyActivity.EXTRA_CLASS_NAME, getHomeActivityInfo(file).name);
     intent.putExtra(ProxyActivity.EXTRA_PLUGIN_NAME, getApkName(file));
     context.startActivity(intent);
+  }
+
+  public void parseStaticBroader(File file) {
+    //尝试解析静态广播
+    try {
+      //根据源码可知  这个类提供源码的解析功能
+      Class clazz = Class.forName("android.content.pm.PackageParser");
+      Object mPackageParser = clazz.newInstance();//获取到这个方法对象
+      //拿到    public Package parsePackage(File packageFile, int flags) throws PackageParserException {
+      Method method = clazz.getMethod("parsePackage", File.class, int.class);
+      Object pack = method.invoke(mPackageParser, file, PackageManager.GET_ACTIVITIES);
+      //解析
+      //  <receiver android:name=".StaticReceiver">
+      //    <intent-filter>
+      //      <action android:name="plugin.static_receiver" />
+      //    </intent-filter>
+      //  </receiver>
+
+      //获取所有的receivers
+      //public final ArrayList<Activity> receivers = new ArrayList<Activity>(0);
+      Field receiversField = pack.getClass().getField("receivers");
+      ArrayList<Object> receivers = (ArrayList<Object>) receiversField.get(pack);
+
+
+      //用户状态
+      Class mPackageUserState = Class.forName("android.content.pm.PackageUserState");
+      //用户id
+      Class mUserHandle = Class.forName("android.os.UserHandle");
+      int userId = (int) mUserHandle.getMethod("getCallingUserId").invoke(null);
+
+      for (Object receiver : receivers) {
+        //拿到 receiver android:name=".StaticReceiver"
+        Class componentClass = Class.forName("android.content.pm.PackageParser$Component");
+        //获取到意图 - <intent-filter> 解析 public final ArrayList<II> intents;
+        ArrayList<Object> intentList = (ArrayList<Object>) componentClass.getField("intents").get(receiver);
+
+        //解析类名
+        //这里拿到的不是完整的包名 是删减的 ？
+        String className = (String) componentClass.getField("className").get(receiver);
+        if (DEBUG) Log.d(TAG, "parseStaticBroader:className-> " + className);
+
+        //开始想办法拿真正的包名
+        /**
+         * 执行此方法，就能拿到 ActivityInfo
+         * public static final ActivityInfo generateActivityInfo(Activity a, int flags,
+         *             PackageUserState state, int userId)
+         */
+        Method generateActivityInfoMethod = clazz.getDeclaredMethod("generateActivityInfo", receiver.getClass()
+            , int.class, mPackageUserState, int.class);
+        generateActivityInfoMethod.setAccessible(true);
+        ActivityInfo mActivityInfo = (ActivityInfo) generateActivityInfoMethod.invoke(null, receiver, 0, mPackageUserState.newInstance(), userId);
+
+        className = mActivityInfo.name;
+        if (DEBUG) Log.d(TAG, "parseStaticBroader: mActivityInfo.name->" + mActivityInfo.name);
+
+        Class mStaticReceiverClass = getDexClassLoader(getApkName(file)).loadClass(className);
+        BroadcastReceiver broadcastReceiver = (BroadcastReceiver) mStaticReceiverClass.newInstance();
+
+        for (Object obj : intentList) {
+          mContext.registerReceiver(broadcastReceiver, (IntentFilter) obj);
+        }
+      }
+
+    } catch (Exception e) {
+      if (DEBUG) Log.d(TAG, "parseStaticBroader: 静态广播解析");
+      e.printStackTrace();
+    }
   }
 
   //---------------Private Method-------------------------------------------------------------------

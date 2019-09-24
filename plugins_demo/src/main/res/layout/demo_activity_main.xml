@@ -43,6 +43,16 @@
         app:layout_constraintRight_toRightOf="parent"
         app:layout_constraintTop_toBottomOf="@id/btn_register_broader" />
 
+
+    <Button
+        android:id="@+id/btn_send_static_broader"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="发送静态广播"
+        app:layout_constraintLeft_toLeftOf="parent"
+        app:layout_constraintRight_toRightOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/btn_send_broader" />
+
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

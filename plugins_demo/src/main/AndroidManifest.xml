@@ -16,6 +16,11 @@
 
             </intent-filter>
         </activity>
+        <receiver android:name=".Demo_StaticBroader">
+            <intent-filter>
+                <action android:name="plugin.static_receiver"/>
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>
