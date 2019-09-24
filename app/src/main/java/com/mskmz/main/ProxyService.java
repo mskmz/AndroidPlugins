@@ -1,38 +1,36 @@
 package com.mskmz.main;
 
-import android.app.Activity;
-import android.content.BroadcastReceiver;
+import android.app.Service;
 import android.content.ComponentName;
 import android.content.ContextWrapper;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.res.Resources;
-import android.os.Bundle;
+import android.os.IBinder;
 import android.util.Log;
-import android.view.ContextThemeWrapper;
 
-import com.mskmz.main.activity.ActivityInterface;
+import androidx.annotation.Nullable;
 
-import java.lang.reflect.Constructor;
+import com.mskmz.main.activity.ServiceInterface;
+
 import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
 
 import dalvik.system.DexClassLoader;
 
-public class ProxyActivity extends Activity {
+public class ProxyService extends Service {
   //···············Constant·········································································
-  //---------------DEBUG配置---------------------------------------------------------------------------
-  private static final String TAG = "ProxyActivity>>>";
+  //---------------DEBUG配置-------------------------------------------------------------------------
+  private static final String TAG = "ProxyService>>>";
   private static final boolean DEBUG = true;
-
+  //---------------EXTRA----------------------------------------------------------------------------
   public static final String EXTRA_CLASS_NAME = "extraClassName";
   public static final String EXTRA_PLUGIN_NAME = "extraPluginName";
-  public static final String EXTRA_CLASS_SOURCE = "extraClassSource";
+
   //···············Field············································································
-  private String mClassName;
   private String mPluginName;
+  private String mClassName;
   private DexClassLoader mClassLoader;
-  private ActivityInterface mActivity;
+  private Resources mRes;
+  private ServiceInterface mService;
 
   //···············Constructor······································································
   //···············Method···········································································
@@ -43,63 +41,61 @@ public class ProxyActivity extends Activity {
   }
 
   @Override
-  protected void onCreate(Bundle savedInstanceState) {
-    if (DEBUG) Log.d(TAG, "onCreate: ");
-    super.onCreate(savedInstanceState);
-    if (DEBUG) Log.d(TAG, "onCreate: ");
-    mClassName = getIntent().getStringExtra(EXTRA_CLASS_NAME);
-    mPluginName = getIntent().getStringExtra(EXTRA_PLUGIN_NAME);
-    if (mClassName == null || mClassName.isEmpty()) {
-      //不应该出现ClassName没有的类
-      finish();
-    }
+  public void onCreate() {
+    super.onCreate();
+  }
 
-    try {
+  //动态注册 只能在这里拿到intent
+  @Override
+  public int onStartCommand(Intent intent, int flags, int startId) {
+    if (DEBUG) Log.d(TAG, "onStartCommand: 开始加载Fragment");
+    if (intent.hasExtra(EXTRA_CLASS_NAME)) {
+      mClassName = intent.getStringExtra(EXTRA_CLASS_NAME);
+    }
+    if (intent.hasExtra(EXTRA_PLUGIN_NAME)) {
+      mPluginName = intent.getStringExtra(EXTRA_PLUGIN_NAME);
       mClassLoader = PluginManager.getInstance().getDexClassLoader(mPluginName);
-      if (DEBUG) Log.d(TAG, "onCreate:mClassLoader -> " + mClassLoader);
-      if (DEBUG) Log.d(TAG, "onCreate:mClassName ->" + mClassName);
-      Class mPluginActivityClass = mClassLoader.loadClass(mClassName);
-      // 实例化 插件包里面的 Activity
-      Constructor constructor = mPluginActivityClass.getConstructor(new Class[]{});
-      Object mPluginActivity = constructor.newInstance(new Object[]{});
-      mActivity = (ActivityInterface) mPluginActivity;
-      mActivity.insertAppContext(this);
-      replaceAppContext();
-      mActivity.onCreate(savedInstanceState);
-    } catch (ClassNotFoundException | IllegalAccessException | InstantiationException | NoSuchMethodException | InvocationTargetException e) {
-      e.printStackTrace();
-      finish();
+      mRes = PluginManager.getInstance().getRes(mPluginName);
     }
+    if (mClassLoader == null || mRes == null || mPluginName == null || mClassName == null) {
+      throw new RuntimeException("" +
+          "请求不合法" +
+          "\r mClassLoader=" + mClassLoader +
+          "\r mRes        =" + mRes +
+          "\r mPluginName =" + mPluginName +
+          "\r mclassName  =" + mClassName);
+    }
+    //加载Fragment
+    try {
+      if (DEBUG) Log.d(TAG, "onStartCommand: 开始注入Fragment");
+      mService = (ServiceInterface) mClassLoader.loadClass(mClassName).newInstance();
+      mService.insertServiceContext(this);
+      replaceServiceContext();
+      mService.onStartCommand(intent, flags, startId);
+    } catch (ClassNotFoundException e) {
+      e.printStackTrace();
+      throw new RuntimeException("崩溃");
+    } catch (IllegalAccessException e) {
+      e.printStackTrace();
+    } catch (InstantiationException e) {
+      e.printStackTrace();
+    }
+    return super.onStartCommand(intent, flags, startId);
   }
 
-  //转发所有的生命周期
   @Override
-  protected void onStart() {
-    super.onStart();
-    mActivity.onStart();
+  public boolean onUnbind(Intent intent) {
+    return super.onUnbind(intent);
   }
 
   @Override
-  protected void onResume() {
-    super.onResume();
-    mActivity.onResume();
+  public void onRebind(Intent intent) {
+    super.onRebind(intent);
   }
 
   @Override
-  protected void onPause() {
-    mActivity.onPause();
-    super.onPause();
-  }
-
-  @Override
-  protected void onStop() {
-    mActivity.onStop();
-    super.onStop();
-  }
-
-  @Override
-  protected void onDestroy() {
-    mActivity.onDestroy();
+  public void onDestroy() {
+    mService.onDestroy();
     super.onDestroy();
   }
 
@@ -116,36 +112,32 @@ public class ProxyActivity extends Activity {
 
   @Override
   public ComponentName startService(Intent service) {
-    if (DEBUG) Log.d(TAG, "startService:  父类收到监听");
     if (service.hasExtra(EXTRA_CLASS_NAME)) {
       Intent newIntent = new Intent(this, ProxyService.class);
       newIntent.putExtras(service);
       newIntent.putExtra(EXTRA_PLUGIN_NAME, mPluginName);
       service = newIntent;
-    } else {
-      if (DEBUG) Log.d(TAG, "startService: 数据不完整");
     }
     return super.startService(service);
   }
 
+  @Nullable
   @Override
-  public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter) {
-    // 在宿主 注册广播
-    return super.registerReceiver(new ProxyBroader(mPluginName, receiver.getClass().getName()), filter);
+  public IBinder onBind(Intent intent) {
+    return null;
   }
+
+
   //---------------Public Method--------------------------------------------------------------------
 
   //---------------Private Method-------------------------------------------------------------------
-  public void replaceAppContext() {
+  public void replaceServiceContext() {
     try {
       //将所有相关值通过遍历进行修改--环境注入
-      if (mActivity instanceof Activity) {
-        changField(Activity.class);
+      if (mService instanceof Service) {
+        changField(Service.class);
       }
-      if (mActivity instanceof ContextThemeWrapper) {
-        changField(ContextThemeWrapper.class);
-      }
-      if (mActivity instanceof ContextWrapper) {
+      if (mService instanceof ContextWrapper) {
         changField(ContextWrapper.class);
       }
     } catch (IllegalAccessException e) {
@@ -156,7 +148,7 @@ public class ProxyActivity extends Activity {
   private void changField(Class clazz) throws IllegalAccessException {
     for (Field field : clazz.getDeclaredFields()) {
       field.setAccessible(true);
-      field.set(mActivity, field.get(this));
+      field.set(mService, field.get(this));
       field.setAccessible(false);
     }
     if (DEBUG) Log.d(TAG, "changField: " + clazz.getSimpleName() + "注入成功");
